@@ -1,0 +1,8 @@
+# tts-skill 依赖（运行时）
+# 注意：PyTorch 由 setup_env.py 根据平台和 GPU 自动选择安装（CUDA/MPS/XPU/CPU）
+# 此文件仅用于开发环境基础依赖
+
+omnivoice>=0.2.1
+gradio>=4.0.0
+soundfile
+numpy

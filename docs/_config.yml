@@ -1,0 +1,27 @@
+title: tts-skill
+description: OmniVoice 声音克隆与生成工具 - 文档
+theme: jekyll-theme-cayman
+lang: zh-CN
+
+# 顶部导航
+header_pages:
+  - index.md
+
+# GitHub 元数据
+repository: boommanpro/tts-skill
+github:
+  repository_url: https://github.com/boommanpro/tts-skill
+
+# SEO
+plugins:
+  - jekyll-seo-tag
+
+# 排除构建文件
+exclude:
+  - tts_skill/
+  - tests/
+  - outputs/
+  - history.json
+  - .setup_done
+  - pyproject.toml
+  - requirements.txt

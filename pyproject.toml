@@ -1,0 +1,43 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tts-skill"
+version = "0.1.0"
+description = "一键式 OmniVoice 声音克隆与生成工具（跨平台、国内镜像、Web 调参、CLI 复现）"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "Apache-2.0"}
+authors = [{name = "tts-skill"}]
+keywords = ["tts", "voice-cloning", "omnivoice", "speech-synthesis"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+
+# 运行时依赖：仅声明 skill 自身所需的最小依赖
+# torch / torchaudio / omnivoice 由 setup_env.py 按平台动态安装
+dependencies = [
+    "gradio>=4.0.0",
+    "soundfile",
+    "numpy",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov",
+]
+
+[project.scripts]
+tts-skill = "tts_skill.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["tts_skill"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
