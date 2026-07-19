@@ -40,6 +40,14 @@ CORE_DEPENDENCIES = [
     "gradio",
 ]
 
+# 语音转文字（ASR）依赖
+# - faster-whisper: 基于 CTranslate2 的 Whisper 加速实现，不依赖 torch
+# - imageio-ffmpeg: 提供跨平台 ffmpeg 二进制，用于视频提取音轨（无需用户手动装 ffmpeg）
+ASR_DEPENDENCIES = [
+    "faster-whisper>=1.0.0",
+    "imageio-ffmpeg>=0.4.9",
+]
+
 # 可选：文本归一化依赖（国内 macOS 无 pynini wheel，跳过）
 TN_DEPENDENCIES = ["num2words"]
 
@@ -72,6 +80,18 @@ def is_torch_installed() -> bool:
     """检查 torch 是否已安装。"""
     try:
         import torch  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
+def is_asr_installed() -> bool:
+    """检查语音转文字依赖是否已安装（faster-whisper + imageio-ffmpeg）。"""
+    try:
+        import faster_whisper  # noqa: F401
+
+        import imageio_ffmpeg  # noqa: F401
 
         return True
     except ImportError:
@@ -184,6 +204,12 @@ def install_omnivoice() -> tuple[bool, str]:
     return _pip_install(CORE_DEPENDENCIES, timeout=1800)
 
 
+def install_asr() -> tuple[bool, str]:
+    """安装语音转文字（ASR）依赖：faster-whisper + imageio-ffmpeg。"""
+    logger.info("安装语音转文字依赖...")
+    return _pip_install(ASR_DEPENDENCIES, timeout=600)
+
+
 def install_tn_dependencies() -> tuple[bool, str]:
     """安装文本归一化可选依赖。"""
     logger.info("安装文本归一化依赖...")
@@ -201,12 +227,13 @@ def upgrade_pip() -> tuple[bool, str]:
 # ---------------------------------------------------------------------------
 
 
-def setup_environment(force: bool = False, skip_tn: bool = False) -> tuple[bool, str]:
+def setup_environment(force: bool = False, skip_tn: bool = False, skip_asr: bool = False) -> tuple[bool, str]:
     """执行完整环境安装流程。
 
     Args:
         force: 强制重新安装（忽略已有标记）。
         skip_tn: 跳过文本归一化可选依赖。
+        skip_asr: 跳过语音转文字（ASR）依赖。
 
     Returns:
         (成功与否, 日志信息)
@@ -222,7 +249,7 @@ def setup_environment(force: bool = False, skip_tn: bool = False) -> tuple[bool,
     if not ok:
         _log(f"[错误] {info}")
         return False, "\n".join(all_logs)
-    _log(f"[1/5] Python 版本检查通过: {info}")
+    _log(f"[1/6] Python 版本检查通过: {info}")
 
     # 2. 检查是否已安装
     if is_setup_done() and not force:
@@ -235,17 +262,17 @@ def setup_environment(force: bool = False, skip_tn: bool = False) -> tuple[bool,
 
     # 3. 设置国内镜像环境变量
     set_hf_mirror_env()
-    _log(f"[2/5] HuggingFace 镜像: {('启用 ' + 'https://hf-mirror.com') if is_china_network() else '未启用'}")
+    _log(f"[2/6] HuggingFace 镜像: {('启用 ' + 'https://hf-mirror.com') if is_china_network() else '未启用'}")
     _log(f"      pip 镜像: {'启用 ' + PIP_MIRROR if is_china_network() else '未启用'}")
 
     # 4. 升级 pip
-    _log("[3/5] 升级 pip...")
+    _log("[3/6] 升级 pip...")
     ok, out = upgrade_pip()
     if not ok:
         _log("[警告] pip 升级失败，继续安装...")
 
     # 5. 安装 PyTorch
-    _log("[4/5] 安装 PyTorch（根据平台和 GPU 自动选择）...")
+    _log("[4/6] 安装 PyTorch（根据平台和 GPU 自动选择）...")
     device_hint = get_recommended_device_hint()
     plat = get_platform()
     _log(f"      平台: {plat}, 设备: {device_hint}")
@@ -254,18 +281,30 @@ def setup_environment(force: bool = False, skip_tn: bool = False) -> tuple[bool,
         _log("[错误] PyTorch 安装失败:")
         _log(out[-2000:] if len(out) > 2000 else out)
         return False, "\n".join(all_logs)
-    _log("[4/5] PyTorch 安装成功")
+    _log("[4/6] PyTorch 安装成功")
 
     # 6. 安装 OmniVoice
-    _log("[5/5] 安装 OmniVoice...")
+    _log("[5/6] 安装 OmniVoice...")
     ok, out = install_omnivoice()
     if not ok:
         _log("[错误] OmniVoice 安装失败:")
         _log(out[-2000:] if len(out) > 2000 else out)
         return False, "\n".join(all_logs)
-    _log("[5/5] OmniVoice 安装成功")
+    _log("[5/6] OmniVoice 安装成功")
 
-    # 7. 可选：文本归一化依赖
+    # 7. 安装语音转文字（ASR）依赖
+    if not skip_asr:
+        _log("[6/6] 安装语音转文字依赖（faster-whisper + imageio-ffmpeg）...")
+        ok, out = install_asr()
+        if ok:
+            _log("[6/6] 语音转文字依赖安装成功")
+        else:
+            _log("[警告] 语音转文字依赖安装失败（不影响 TTS 核心功能）:")
+            _log(out[-1000:] if len(out) > 1000 else out)
+    else:
+        _log("[6/6] 跳过语音转文字依赖（--skip_asr）")
+
+    # 8. 可选：文本归一化依赖
     if not skip_tn:
         _log("[可选] 安装文本归一化依赖...")
         ok, _ = install_tn_dependencies()
@@ -274,7 +313,7 @@ def setup_environment(force: bool = False, skip_tn: bool = False) -> tuple[bool,
         else:
             _log("[可选] 文本归一化依赖安装失败（不影响核心功能）")
 
-    # 8. 验证安装
+    # 9. 验证安装
     _log("[验证] 检查安装结果...")
     if not is_torch_installed():
         _log("[错误] torch 未正确安装")
@@ -282,6 +321,8 @@ def setup_environment(force: bool = False, skip_tn: bool = False) -> tuple[bool,
     if not is_omnivoice_installed():
         _log("[错误] omnivoice 未正确安装")
         return False, "\n".join(all_logs)
+    if not is_asr_installed():
+        _log("[警告] 语音转文字依赖未正确安装（transcribe 命令不可用，TTS 功能不受影响）")
 
     # 输出设备信息
     try:

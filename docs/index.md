@@ -1,13 +1,14 @@
 # tts-skill
 
-> 一行命令，让文本发出任何人的声音。
+> 一行命令，让文本发出任何人的声音；一行命令，让音频/视频变成文字。
 
-基于开源 [OmniVoice](https://github.com/k2-fsa/OmniVoice) 的声音克隆与生成工具。支持 600+ 语种零样本文本转语音、声音克隆、声音设计，跨平台自动安装，国内镜像加速。
+基于开源 [OmniVoice](https://github.com/k2-fsa/OmniVoice) + [faster-whisper](https://github.com/SYSTRAN/faster-whisper) 的声音克隆/生成/转写工具。支持 600+ 语种零样本文本转语音、声音克隆、声音设计、语音转文字（音频/视频），跨平台自动安装，国内镜像加速。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/boommanpro/tts-skill/blob/main/LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20·%20macOS%20·%20Windows-green.svg)](https://github.com/boommanpro/tts-skill#环境要求)
 [![OmniVoice](https://img.shields.io/badge/Based%20on-OmniVoice-orange.svg)](https://github.com/k2-fsa/OmniVoice)
+[![faster-whisper](https://img.shields.io/badge/ASR-faster--whisper-blueviolet.svg)](https://github.com/SYSTRAN/faster-whisper)
 
 ---
 
@@ -28,9 +29,10 @@ python -m tts_skill web
 
 首次运行会自动安装环境（约 10-20 分钟，国内镜像加速）。安装完成后浏览器访问 `http://localhost:7860`。
 
-### 3. CLI 直接生成
+### 3. CLI 直接使用
 
 ```bash
+# === 声音生成（TTS）===
 # 自动声音
 python -m tts_skill infer --text "你好，这是一个测试" --mode auto --seed 42
 
@@ -42,6 +44,16 @@ python -m tts_skill infer --text "Hello" --mode design --instruct "male, british
 
 # 批量生成 5 个
 python -m tts_skill infer --text "你好" --mode auto --batch_count 5
+
+# === 语音转文字（ASR）===
+# 转写视频（自动提取音轨）
+python -m tts_skill transcribe --input meeting.mp4
+
+# 转写音频
+python -m tts_skill transcribe --input audio.mp3 --language zh
+
+# 翻译成英文
+python -m tts_skill transcribe --input video.mp4 --task translate
 ```
 
 ---
@@ -128,19 +140,29 @@ python -m tts_skill infer --text "你好" --mode auto --batch_count 5
 python -m tts_skill web
 ```
 
-浏览器访问 `http://localhost:7860`，包含 4 个标签页：
+浏览器访问 `http://localhost:7860`，包含 5 个标签页：
 
 1. **声音克隆** - 上传参考音频 + 输入文本
 2. **声音设计** - 选择性别/年龄/音调/口音/方言
 3. **自动声音** - 仅输入文本
-4. **历史记录** - 查看、重命名、删除、查看复现命令
+4. **语音转文字** - 上传音频/视频，自动转写为文字（含词级时间戳）
+5. **历史记录** - 查看、重命名、删除、查看复现命令（TTS + ASR 分区）
 
-每个标签页都支持：
+TTS 标签页支持：
 
 - 随机种子配置（固定可复现 / 随机探索）
 - 批量生成（默认 5 个，每个不同种子，全部在界面展示）
 - 生成参数调节（num_step、guidance_scale、speed、duration 等）
 - 生成后输出可复现 CLI 命令
+
+语音转文字标签页支持：
+
+- 上传音频或视频文件（视频自动提取音轨）
+- 模型选择（tiny/base/small/medium/large-v3，默认 large-v3）
+- 语言自动检测或手动指定
+- 转写（保留原语言）或翻译成英文
+- 词级时间戳、VAD 静音过滤
+- 输出 JSON（含词级时间戳）+ 纯文本，Web UI 直接下载
 
 ---
 
@@ -165,13 +187,37 @@ python -m tts_skill web
 | `--denoise` | 是否降噪 | true |
 | `--normalize_text` | 文本归一化 | false |
 
+### transcribe - 语音转文字
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `--input` | 输入音频/视频文件路径（必填） | - |
+| `--model` | Whisper 模型：tiny/base/small/medium/large-v3 | large-v3 |
+| `--language` | 语言代码（如 zh、en、ja），不指定则自动检测 | 自动检测 |
+| `--task` | 任务：transcribe（转写）/ translate（翻译成英文） | transcribe |
+| `--device` | 设备：cuda / cpu（不支持 MPS，macOS 自动回退 cpu） | 自动检测 |
+| `--compute_type` | 计算精度：float16 / int8 / ... | cuda→float16, cpu→int8 |
+| `--beam_size` | beam search 大小 | 5 |
+| `--word_timestamps` | 输出词级时间戳 | true |
+| `--vad_filter` | VAD 静音过滤 | true |
+| `--name` | 自定义记录名称 | - |
+| `--output_dir` | 输出目录 | outputs/ |
+| `--keep_temp_audio` | 保留从视频提取的临时音频文件 | false |
+
+支持的视频格式：mp4 / mov / mkv / avi / webm / flv / wmv / m4v / mpg / mpeg / ts / 3gp / ogv
+
+支持的音频格式：wav / mp3 / flac / m4a / aac / ogg / wma / aiff / opus / oga
+
 ### 其他命令
 
 ```bash
 python -m tts_skill setup          # 安装环境
 python -m tts_skill setup --force  # 强制重新安装
-python -m tts_skill history        # 查看历史记录
-python -m tts_skill history --show_cmd  # 显示复现命令
+python -m tts_skill setup --skip_asr  # 跳过 ASR 依赖（仅装 TTS）
+python -m tts_skill history            # 查看所有历史记录（TTS + ASR）
+python -m tts_skill history --type tts # 仅查看 TTS 记录
+python -m tts_skill history --type asr # 仅查看转写记录
+python -m tts_skill history --show_cmd # 显示复现命令
 python -m tts_skill doctor         # 诊断环境
 python -m tts_skill --version      # 查看版本
 ```
@@ -213,7 +259,7 @@ export TTS_SKILL_FORCE_REGION=global
 python -m tts_skill doctor
 ```
 
-输出包含：平台信息、Python 版本、网络区域、设备检测、安装状态、torch/omnivoice/gradio 版本等。
+输出包含：平台信息、Python 版本、网络区域、设备检测、安装状态、torch/omnivoice/gradio 版本、faster-whisper 与 ffmpeg 路径等。
 
 常见问题：
 
@@ -221,13 +267,16 @@ python -m tts_skill doctor
 - **模型下载失败**：检查 `HF_ENDPOINT` 环境变量
 - **GPU 未识别**：运行 doctor 检查，或 `--device` 手动指定
 - **端口被占用**：`--port` 指定其他端口
+- **transcribe 命令不可用**：运行 `python -m tts_skill setup` 安装 ASR 依赖（faster-whisper + imageio-ffmpeg）
+- **macOS 转写慢**：faster-whisper 不支持 Apple MPS，自动回退到 CPU + int8；可改用 `--model small` 加速
+- **视频转写失败**：imageio-ffmpeg 自带跨平台 ffmpeg 二进制；如仍失败可手动安装系统 ffmpeg 并设置 `FFMPEG_BINARY` 环境变量
 
 ---
 
 ## 链接
 
 - **GitHub 仓库**：[boommanpro/tts-skill](https://github.com/boommanpro/tts-skill)
-- **基于项目**：[OmniVoice](https://github.com/k2-fsa/OmniVoice)
+- **基于项目**：[OmniVoice](https://github.com/k2-fsa/OmniVoice) · [faster-whisper](https://github.com/SYSTRAN/faster-whisper)
 - **问题反馈**：[Issues](https://github.com/boommanpro/tts-skill/issues)
 
 ## 许可证

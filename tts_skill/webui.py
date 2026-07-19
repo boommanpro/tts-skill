@@ -2,6 +2,7 @@
 
 功能：
 - 三种生成模式（声音克隆 / 声音设计 / 自动声音）
+- 语音转文字（音频/视频 -> 文本，基于 faster-whisper）
 - 可视化随机种子配置（固定种子 / 随机种子）
 - 批量生成（默认 5 个，每个不同种子）
 - 历史记录查看、名称编辑、删除
@@ -23,6 +24,15 @@ from tts_skill.config import (
     delete_record,
     load_history,
     update_record_name,
+)
+from tts_skill.transcribe import (
+    DEFAULT_ASR_MODEL,
+    SUPPORTED_MODELS,
+    build_transcribe_reproducible_command,
+    delete_transcribe_record,
+    load_transcribe_history,
+    transcribe_file,
+    update_transcribe_record_name,
 )
 from tts_skill.utils import (
     DEFAULT_MODEL,
@@ -340,6 +350,27 @@ def _history_markdown() -> str:
     return "\n".join(lines)
 
 
+def _transcribe_history_markdown() -> str:
+    """获取转写历史记录的 Markdown 表格。"""
+    records = load_transcribe_history()
+    if not records:
+        return "_暂无转写历史记录_"
+
+    lines = [
+        "| ID | 名称 | 类型 | 语言 | 时长 | 时间 | 输入文件 |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for r in records:
+        name = r.name.replace("|", "\\|")
+        input_name = Path(r.input_file).name if r.input_file else "-"
+        input_name = input_name.replace("|", "\\|")
+        lang = r.language or "?"
+        lines.append(
+            f"| `{r.id}` | {name} | {r.file_type} | {lang} | {r.duration:.1f}s | {r.timestamp} | {input_name} |"
+        )
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 # 构建 Gradio 界面
 # ---------------------------------------------------------------------------
@@ -557,6 +588,81 @@ def build_demo(
                 return build_reproducible_command(r)
         return f"未找到记录: {record_id}"
 
+    # -- 语音转写函数 --
+    def _do_transcribe(
+        input_file,
+        model_size,
+        language,
+        task,
+        beam_size,
+        word_timestamps,
+        vad_filter,
+        name,
+    ):
+        """执行转写，返回 (状态, 文本预览, JSON 文件, 可复现命令, 转写历史)。"""
+        if not input_file:
+            return "请上传音频或视频文件", "", None, "", _transcribe_history_markdown()
+
+        try:
+            result = transcribe_file(
+                input_file,
+                model_size=model_size,
+                language=language if language else None,
+                task=task,
+                beam_size=int(beam_size),
+                word_timestamps=bool(word_timestamps),
+                vad_filter=bool(vad_filter),
+                name=name if name else None,
+            )
+        except Exception as e:
+            return f"转写失败: {e}", "", None, "", _transcribe_history_markdown()
+
+        status = (
+            f"转写完成！\n"
+            f"检测语言: {result.language} (置信度 {result.language_probability:.2%})\n"
+            f"音频时长: {result.duration:.1f}s"
+            + (f" (VAD 后 {result.duration_after_vad:.1f}s)" if result.duration_after_vad else "")
+            + f"\n分段数量: {len(result.segments)}\n"
+            f"模型: {result.model_size} (device={result.device}, task={result.task})\n"
+            f"输出文件: {len(result.output_files)} 个"
+        )
+
+        # JSON 文件路径（用于下载）
+        json_file = None
+        for f in result.output_files:
+            if f.endswith(".json"):
+                json_file = f
+                break
+
+        # 可复现命令（从最新转写历史取）
+        cmd = ""
+        records = load_transcribe_history()
+        if records:
+            cmd = build_transcribe_reproducible_command(records[0])
+
+        return status, result.text, json_file, cmd, _transcribe_history_markdown()
+
+    def _rename_transcribe_record(record_id, new_name):
+        if not record_id:
+            return "请输入要重命名的记录 ID", _transcribe_history_markdown()
+        if update_transcribe_record_name(record_id, new_name):
+            return f"已重命名 {record_id} -> {new_name}", _transcribe_history_markdown()
+        return f"未找到转写记录: {record_id}", _transcribe_history_markdown()
+
+    def _delete_transcribe_record(record_id):
+        if not record_id:
+            return "请输入要删除的记录 ID", _transcribe_history_markdown()
+        if delete_transcribe_record(record_id):
+            return f"已删除转写记录: {record_id}", _transcribe_history_markdown()
+        return f"未找到转写记录: {record_id}", _transcribe_history_markdown()
+
+    def _show_transcribe_cmd(record_id):
+        records = load_transcribe_history()
+        for r in records:
+            if r.id == record_id:
+                return build_transcribe_reproducible_command(r)
+        return f"未找到转写记录: {record_id}"
+
     # =====================================================================
     # UI 布局
     # =====================================================================
@@ -574,6 +680,7 @@ def build_demo(
 
             基于开源模型实现的声音克隆与生成工具，支持：
             - 声音克隆（参考音频）、声音设计（属性描述）、自动声音
+            - 语音转文字（音频/视频 -> 文本，基于 faster-whisper）
             - 可视化随机种子配置（相同种子可复现）
             - 批量生成（默认 5 个）、历史记录、名称编辑
             - 生成后输出可复现 CLI 命令
@@ -622,6 +729,10 @@ def build_demo(
         # 定义在 Tabs 之前，所有 Tab 的生成函数都会更新它
         gr.Markdown("## 最近生成历史")
         history_md_state = gr.Markdown(value=_history_markdown())
+
+        # 全局共享的转写历史 Markdown 组件
+        gr.Markdown("## 最近转写历史")
+        transcribe_md_state = gr.Markdown(value=_transcribe_history_markdown())
 
         with gr.Tabs():
             # =============================================================
@@ -738,20 +849,85 @@ def build_demo(
                 )
 
             # =============================================================
-            # Tab 4: 历史记录
+            # Tab 4: 语音转文字
+            # =============================================================
+            with gr.TabItem("语音转文字"):
+                gr.Markdown(
+                    "**上传音频或视频文件，自动转写为文字。**\n"
+                    "- 视频（mp4/mov/mkv/...）会自动提取音轨\n"
+                    "- 音频（wav/mp3/flac/m4a/...）直接处理\n"
+                    "- 输出：JSON（含词级时间戳）+ 纯文本\n"
+                    "- 支持 99 种语言自动检测，或手动指定"
+                )
+                with gr.Row():
+                    with gr.Column(scale=1):
+                        asr_input = gr.File(
+                            label="上传音频/视频文件",
+                            file_types=None,  # 允许所有文件类型，由后端检测
+                            type="filepath",
+                        )
+                        asr_model = gr.Dropdown(
+                            choices=SUPPORTED_MODELS,
+                            value=DEFAULT_ASR_MODEL,
+                            label="模型大小",
+                            info="large-v3 最准但需 3GB 显存；small 快但准确度一般",
+                        )
+                        with gr.Row():
+                            asr_language = gr.Textbox(
+                                label="语言代码（可选）",
+                                value="",
+                                placeholder="留空自动检测，如 zh/en/ja",
+                            )
+                            asr_task = gr.Dropdown(
+                                choices=["transcribe", "translate"],
+                                value="transcribe",
+                                label="任务",
+                                info="transcribe=转写原语言, translate=翻译成英文",
+                            )
+                        asr_name = gr.Textbox(label="记录名称（可选）", value="", placeholder="如：会议录音1")
+                        with gr.Accordion("高级参数", open=False):
+                            asr_beam = gr.Slider(1, 10, value=5, step=1, label="beam_size")
+                            asr_word_ts = gr.Checkbox(label="词级时间戳", value=True)
+                            asr_vad = gr.Checkbox(label="VAD 过滤静音", value=True)
+                        asr_btn = gr.Button("转写", variant="primary")
+                    with gr.Column(scale=1):
+                        asr_status = gr.Textbox(label="状态", lines=6)
+                        asr_text = gr.Textbox(
+                            label="转写文本预览",
+                            lines=10,
+                            interactive=False,
+                            placeholder="转写文本将在此显示...",
+                        )
+                        asr_json = gr.File(label="下载 JSON（含词级时间戳）")
+                        asr_cmd = gr.Textbox(label="可复现 CLI 命令", lines=3, interactive=False)
+
+                asr_btn.click(
+                    _do_transcribe,
+                    inputs=[
+                        asr_input, asr_model, asr_language, asr_task,
+                        asr_beam, asr_word_ts, asr_vad, asr_name,
+                    ],
+                    outputs=[asr_status, asr_text, asr_json, asr_cmd, transcribe_md_state],
+                )
+
+            # =============================================================
+            # Tab 5: 历史记录
             # =============================================================
             with gr.TabItem("历史记录"):
                 gr.Markdown(
-                    "历史记录显示在页面顶部的「最近生成历史」区域。\n"
+                    "TTS 生成记录显示在页面顶部的「最近生成历史」区域；\n"
+                    "转写记录显示在「最近转写历史」区域。\n"
                     "下方可对记录进行重命名、删除、查看复现命令操作。"
                 )
                 with gr.Row():
-                    refresh_btn = gr.Button("刷新历史记录", variant="secondary")
-                    refresh_btn.click(lambda: _history_markdown(), outputs=[history_md_state])
+                    refresh_tts_btn = gr.Button("刷新 TTS 历史", variant="secondary")
+                    refresh_tts_btn.click(lambda: _history_markdown(), outputs=[history_md_state])
+                    refresh_asr_btn = gr.Button("刷新转写历史", variant="secondary")
+                    refresh_asr_btn.click(lambda: _transcribe_history_markdown(), outputs=[transcribe_md_state])
 
-                gr.Markdown("### 重命名 / 删除 / 查看复现命令")
+                gr.Markdown("### TTS 生成记录操作")
                 with gr.Row():
-                    op_record_id = gr.Textbox(label="记录 ID", placeholder="从上方历史记录区域复制 ID")
+                    op_record_id = gr.Textbox(label="记录 ID", placeholder="从「最近生成历史」复制 ID")
                     op_new_name = gr.Textbox(label="新名称（重命名用）", value="")
                 with gr.Row():
                     rename_btn = gr.Button("重命名")
@@ -763,6 +939,33 @@ def build_demo(
                 rename_btn.click(_rename_record, inputs=[op_record_id, op_new_name], outputs=[op_result, history_md_state])
                 delete_btn.click(_delete_record, inputs=[op_record_id], outputs=[op_result, history_md_state])
                 show_cmd_btn.click(_show_reproducible_cmd, inputs=[op_record_id], outputs=[op_cmd])
+
+                gr.Markdown("### 语音转写记录操作")
+                with gr.Row():
+                    asr_op_record_id = gr.Textbox(label="转写记录 ID", placeholder="从「最近转写历史」复制 ID")
+                    asr_op_new_name = gr.Textbox(label="新名称（重命名用）", value="")
+                with gr.Row():
+                    asr_rename_btn = gr.Button("重命名")
+                    asr_delete_btn = gr.Button("删除", variant="stop")
+                    asr_show_cmd_btn = gr.Button("查看复现命令")
+                asr_op_result = gr.Textbox(label="操作结果", lines=2)
+                asr_op_cmd = gr.Textbox(label="复现命令", lines=3, interactive=False)
+
+                asr_rename_btn.click(
+                    _rename_transcribe_record,
+                    inputs=[asr_op_record_id, asr_op_new_name],
+                    outputs=[asr_op_result, transcribe_md_state],
+                )
+                asr_delete_btn.click(
+                    _delete_transcribe_record,
+                    inputs=[asr_op_record_id],
+                    outputs=[asr_op_result, transcribe_md_state],
+                )
+                asr_show_cmd_btn.click(
+                    _show_transcribe_cmd,
+                    inputs=[asr_op_record_id],
+                    outputs=[asr_op_cmd],
+                )
 
     return demo
 

@@ -6,3 +6,7 @@ omnivoice>=0.2.1
 gradio>=4.0.0
 soundfile
 numpy
+
+# 语音转文字（ASR）
+faster-whisper>=1.0.0
+imageio-ffmpeg>=0.4.9  # 提供跨平台 ffmpeg 二进制，用于视频提取音轨

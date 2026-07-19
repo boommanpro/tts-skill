@@ -85,6 +85,42 @@ python -m tts_skill infer --text "你好世界" --mode auto --batch_count 5
 
 生成 5 个不同种子的音频文件，每个都可独立复现。
 
+### 4. 语音转文字（音频/视频 -> 文本）
+
+```bash
+# 转写视频文件（自动提取音轨）
+python -m tts_skill transcribe --input meeting.mp4
+
+# 转写音频文件，指定语言
+python -m tts_skill transcribe --input audio.mp3 --language zh
+
+# 翻译成英文（视频原声 -> 英文字幕）
+python -m tts_skill transcribe --input video.mp4 --task translate
+
+# 使用更小的模型（CPU 或显存不足时）
+python -m tts_skill transcribe --input audio.mp3 --model small
+```
+
+输出：
+
+```
+转写完成！
+输入文件: meeting.mp4 (video)
+检测语言: zh (置信度 98.50%)
+音频时长: 1254.3s (VAD 后 1180.5s)
+分段数量: 87
+模型: large-v3 (device=cuda, task=transcribe)
+输出文件:
+  - outputs/meeting_20260719_100000_a1b2c3d4.json  # 含词级时间戳
+  - outputs/meeting_20260719_100000_a1b2c3d4.txt   # 纯文本
+
+可复现命令（复制以下命令可重新转写相同结果）:
+------------------------------------------------------------
+python -m tts_skill transcribe --input meeting.mp4 --model large-v3 --task transcribe --language zh --device cuda
+```
+
+支持视频（mp4/mov/mkv/avi/webm/...）和音频（wav/mp3/flac/m4a/aac/ogg/...），跨平台 ffmpeg 自带，无需用户手动安装。
+
 ---
 
 ## 安装
@@ -140,23 +176,34 @@ python -m tts_skill infer --text "你好" --mode auto
 python -m tts_skill web
 ```
 
-浏览器访问 `http://localhost:7860`，界面包含 4 个标签页：
+浏览器访问 `http://localhost:7860`，界面包含 5 个标签页：
 
 1. **声音克隆** - 上传参考音频 + 输入文本
 2. **声音设计** - 选择性别/年龄/音调/口音/方言
 3. **自动声音** - 仅输入文本
-4. **历史记录** - 查看、重命名、删除、查看复现命令
+4. **语音转文字** - 上传音频/视频，自动转写为文字（含词级时间戳）
+5. **历史记录** - 查看、重命名、删除、查看复现命令（TTS + ASR 分区）
 
-每个标签页都支持：
+TTS 标签页支持：
 
 - 随机种子配置（固定可复现 / 随机探索）
 - 批量生成（默认 5 个，每个不同种子，全部在界面展示）
 - 生成参数调节（num_step、guidance_scale、speed、duration 等）
 - 生成后输出可复现 CLI 命令
 
+语音转文字标签页支持：
+
+- 上传音频或视频文件（视频自动提取音轨）
+- 模型选择（tiny/base/small/medium/large-v3，默认 large-v3）
+- 语言自动检测或手动指定
+- 转写（保留原语言）或翻译成英文
+- 词级时间戳、VAD 静音过滤
+- 输出 JSON（含词级时间戳）+ 纯文本，Web UI 直接下载
+
 ### CLI 命令
 
 ```bash
+# === TTS 声音生成 ===
 # 自动声音
 python -m tts_skill infer --text "你好" --mode auto --seed 42
 
@@ -169,12 +216,28 @@ python -m tts_skill infer --text "Hello" --mode design --instruct "male, british
 # 批量生成 5 个
 python -m tts_skill infer --text "你好" --mode auto --batch_count 5
 
-# 查看历史记录
+# === 语音转文字 ===
+# 转写视频（自动提取音轨）
+python -m tts_skill transcribe --input meeting.mp4
+
+# 转写音频并指定语言
+python -m tts_skill transcribe --input audio.mp3 --language zh
+
+# 翻译成英文
+python -m tts_skill transcribe --input video.mp4 --task translate
+
+# === 历史记录 ===
+# 查看所有历史记录（TTS + ASR）
 python -m tts_skill history
+
+# 只看 TTS 记录 / 只看转写记录
+python -m tts_skill history --type tts
+python -m tts_skill history --type asr
 
 # 显示所有历史记录的复现命令
 python -m tts_skill history --show_cmd
 
+# === 其他 ===
 # 诊断环境问题
 python -m tts_skill doctor
 
@@ -253,18 +316,20 @@ tts-skill/
 │
 ├── tts_skill/                # Python 包
 │   ├── __main__.py           # 入口：python -m tts_skill
-│   ├── cli.py                # 主 CLI（setup/web/infer/history/doctor）
-│   ├── setup_env.py          # 跨平台自动安装
-│   ├── webui.py              # Gradio Web UI
-│   ├── infer.py              # CLI 推理
-│   ├── config.py             # 历史记录管理
+│   ├── cli.py                # 主 CLI（setup/web/infer/transcribe/history/doctor）
+│   ├── setup_env.py          # 跨平台自动安装（TTS + ASR 依赖）
+│   ├── webui.py              # Gradio Web UI（5 个 Tab）
+│   ├── infer.py              # TTS 推理
+│   ├── transcribe.py         # 语音转文字（faster-whisper）
+│   ├── config.py             # TTS 历史记录管理
 │   └── utils.py              # 平台/设备/种子工具
 │
-├── tests/                    # 测试用例（173 个，全部通过）
+├── tests/                    # 测试用例（234 个，全部通过）
 │   ├── test_utils.py         # 平台检测、种子、路径
 │   ├── test_config.py        # 历史 CRUD、复现命令
 │   ├── test_setup_env.py     # 安装策略
-│   ├── test_infer.py         # 推理流程
+│   ├── test_infer.py         # TTS 推理流程
+│   ├── test_transcribe.py    # 语音转文字流程（61 个）
 │   ├── test_webui.py         # Web UI 构建
 │   └── test_cli.py           # CLI 分发
 │

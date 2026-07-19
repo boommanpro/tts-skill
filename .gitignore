@@ -3,6 +3,7 @@ outputs/
 
 # 历史记录（用户特定）
 history.json
+transcribe_history.json
 
 # 环境安装标记
 .setup_done
