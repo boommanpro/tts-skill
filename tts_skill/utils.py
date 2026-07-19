@@ -10,6 +10,38 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+
+# ---------------------------------------------------------------------------
+# Windows 控制台 UTF-8 输出支持
+# ---------------------------------------------------------------------------
+
+
+def _setup_utf8_output() -> None:
+    """在 Windows 上强制 stdout/stderr 使用 UTF-8 编码。
+
+    Windows 默认使用 cp1252 编码，无法输出中文。
+    此函数在模块导入时自动调用，确保跨平台输出一致。
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        # 重新配置 stdout/stderr 为 UTF-8
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+        if hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+    except Exception:
+        # 重新配置失败时，用 utf-8 包装流
+        try:
+            sys.stdout = open(sys.stdout.fileno(), "w", encoding="utf-8", errors="replace", buffering=1)  # type: ignore[assignment]
+            sys.stderr = open(sys.stderr.fileno(), "w", encoding="utf-8", errors="replace", buffering=1)  # type: ignore[assignment]
+        except Exception:
+            pass
+
+
+# 导入时自动设置 UTF-8 输出
+_setup_utf8_output()
+
 # ---------------------------------------------------------------------------
 # 路径常量
 # ---------------------------------------------------------------------------
